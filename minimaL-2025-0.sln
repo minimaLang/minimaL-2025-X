@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.36105.23 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{002A2DE9-8BB6-484D-9802-7E4AD4084715}") = "minimaL_2025_0", "minimaL-2025-0.visualdproj", "{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug GDC|x64 = Debug GDC|x64
+		Debug LDC|x64 = Debug LDC|x64
+		Debug|x64 = Debug|x64
+		Release GDC|x64 = Release GDC|x64
+		Release LDC|x64 = Release LDC|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Debug GDC|x64.ActiveCfg = Debug GDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Debug GDC|x64.Build.0 = Debug GDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Debug LDC|x64.ActiveCfg = Debug LDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Debug LDC|x64.Build.0 = Debug LDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Debug|x64.ActiveCfg = Debug|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Debug|x64.Build.0 = Debug|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Release GDC|x64.ActiveCfg = Release GDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Release GDC|x64.Build.0 = Release GDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Release LDC|x64.ActiveCfg = Release LDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Release LDC|x64.Build.0 = Release LDC|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Release|x64.ActiveCfg = Release|x64
+		{FB3E9A43-6AFC-4AD6-8A14-0CD6585551B6}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4A8BEA1A-B39F-4B43-B93C-70BFC0F4CE3B}
+	EndGlobalSection
+EndGlobal
