@@ -9,7 +9,7 @@ import minimal;
 public const VERSION = "0.2025.0";
 public const BUILD   = "alpha0";
 
-public const HTTP = "https://github.com/minimaL/";
+public const HTTP = "https://github.com/minimaLang/";
 public const NAME = "Hello minimaL";
 public const CLI  = "hello";
 
