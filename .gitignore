@@ -364,5 +364,20 @@ FodyWeavers.xsd
 .env
 
 # More
-*.txt
-dub
+*txt
+*dub
+
+*vscode
+docs.*
+__dummy.*
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*test*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst

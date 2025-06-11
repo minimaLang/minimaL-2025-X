@@ -1,10 +1,20 @@
 module minimal.main;
 
 
-import std.string : split, format, endsWith, replace;
+import std.string :
+    empty,      endsWith,
+    strip,      split,
+    splitLines, format,
+    replace,    soundex
+;
+
+import std.getopt : getopt, config, Option;
 import std.stdio : writeln, writefln;
+import std.exception;
 
 import minimal;
+
+public const SPECVER = "0-2025-0";
 
 public const VERSION = "0.2025.0";
 public const BUILD   = "alpha0";
@@ -15,132 +25,166 @@ public const CLI  = "hello";
 
 public const DESC = `
 ...
-minimaL  %s-%s
+minimaL  %s-%s %%-%s
 
 minimaL is an RPN (Reverse Polish Notation) interpreter.
-Lookup  %s for more information.`.format(VERSION, BUILD, HTTP);
+Lookup  %s for more information.`.format(VERSION, BUILD, SPECVER, HTTP);
 
 public const USAGE_SHORT =
-"Usage
-    1. %s <OPTION> <arguments>
-    2. %s <file>.mmal
+`%s
+
+Usage
+    1. <OPTION> <arguments>
+    2. <file>.mmal
 Example
     (1) %s -e \"4 2 + = #\"
     (2) %s foo.mmal
-    (2) %s foo"
-.format(CLI, CLI, CLI, CLI, CLI);
+    (2) %s foo
+`.format(VERSION, CLI, CLI, CLI);
 public const USAGE = `
-%s
 >--------+-------------+-------------------------------------<
 > Option | Arguments   | Description  ...                    <
 >--------+-------------+-------------------------------------<
-| -v     |             | Shows version.                      |
-+--------+-------------+-------------------------------------+
+| -v     | ........... | Shows version.                      |
 | -h     | [topic]     | This screen or help for 'topic'     |
-+--------+-------------+-------------------------------------+
 | -e     | <seq> ./#   | Evaluate given sequence.            |
-+--------+-------------+-------------------------------------+
-| -i     |             | Run in interactive mode (REPL)      |
-+--------+-------------+-------------------------------------+
+| -i     | ........... | Run in interactive mode (REPL)      |
 | -d     | [v+]        | Debug a script; (v = verbose level) |
-+--------+-------------+-------------------------------------+
 | -r     | <file>.mmal | Runs a script                       |
-+--------+-------------+-------------------------------------+
-%s`.format(USAGE_SHORT, DESC);
+| show%  | ........... | Shows used specver                  |
+| set%   | [<specver>] | Sets specver for current directory  |
+<--------+-------------+------------------------------------->
+For information about a specific option type [help <topic>]. `;
 
+
+Context ctx;
 
 int main(string[] args)
 {
     debug writeln("[DEBUG]");
     handleInput(args);
-    if (errorcode > 0) writefln("\nERROR  [%d] %s", errorcode, errormsg);
     return errorcode;
 }
 
-void handleInput(string[] args)  {
-    if (args.length < 2) {
+void handleInput(ref string[] args)  {
+    if (args.length == 0) {
         writeln("\nArgument required or file name.");
         writeln(USAGE_SHORT);
-        errormsg = "No argument given.";
-        errorcode = 1;
+        setError("No argument given.", ErrorCode.Err);
     }
     else {
         handleOpt(args);
     }
+
+    handleError(args);
 }
 
-void handleOpt(string[] args) {
-    import std.getopt : getopt, config;
+void handleError(ref string[] args) {
+    debug writeOnError();
+    else  raiseOnError();
+}
 
-    arguments = args[1..$];
-    debug writefln("Number of arguments  %d", arguments.length);
+void handleOpt(ref string[] args) {
 
-    auto help = getopt(
-        args,
-        config.passThrough,
-        "help",    &handleHelp,
+    try {
+        auto help = getopt(
+            args,
+            config.passThrough,
 
-        "v",       &handleVersion,
-        "e",       &handleEvaluate,
-        "d",       &handleDebug,
-        "i",       &runREPL,
-        "r",       &runScript,
+            "v",       &handleVersion,
+            "e",       &handleEvaluate,
+            "d",       &handleDebug,
+            "i",       &runREPL,
+            "r",       &runScript,
 
-        "version", &handleVersion,
-        "eval",    &handleEvaluate,
-        "debug",   &handleDebug,
+            "version", &handleVersion,
+            "eval",    &handleEvaluate,
+            "debug",   &handleDebug,
 
-        "repl",    &runREPL,
-        "run",     &runScript,
-    );
+            "repl",    &runREPL,
+            "run",     &runScript,
 
-    if(help.helpWanted) {
-        debug writeln("[helpWanted]");
-        handleHelp(arguments[0]);
+            // TODO "set%",    &setSpecver,
+            "show%",   &showSpecver,
+
+            "help",    &handleHelp,
+        );
+
+        if(help.helpWanted) {
+            debug writeln("[helpWanted]");
+            handleHelp();
+        }
+
+        if (args.length >= 0) setArguments(cast() args[1..$]);
     }
-    else if (arguments.length == 1) {
-        if (arguments[0] == "help") {
-            handleHelp("usage");
-        }
-        else {
-            debug writeln("[UnsuportedArgs]");
-            handleUnsupportedArgs();
-        }
+    catch(Exception e) {
+        setError(cast(string) e.message, ErrorCode.InvalidInput);
+        return;
+    }
+
+    debug writeln(arguments);
+
+    if(arguments.length == 0) {
+        debug writefln("No argument remains.");
+    }
+    else {
+        handleUnknownArgs(arguments);
     }
 
     if (errorcode > 0) return;
 }
 
-void handleUnsupportedArgs() {
-    foreach (arg; arguments) writefln("\nOption [%s] is unsupported.", arg);
-    errormsg  = "Got unsupported option.";
-    errorcode = 2;
+void handleUnknownArgs(in string[] arguments_to_be_checked) {
+    foreach (arg; arguments_to_be_checked) {
+        writefln("\nOption [%s] is unknown.", arg);
+    }
+    setError("Got unknown option.", ErrorCode.UnknownArgument);
+}
+
+void handleHelp() {
+    debug writeln("[handleHelp()]");
+    writeln(USAGE_SHORT);
 }
 
 void handleHelp(string topic) {
+    topic = topic.strip();
+
+    debug writefln("Topic %s", topic);
     switch (topic) {
-        case "e", "eval": writeln(
-            "               Evaluates a sequence. Must end with [.] or [#].");
+        case "e", "eval":
+            writeln("Evaluates a sequence. Must end with [.] or [#].");
             break;
-        case "i", "repl": writeln(
-            "               Runs interactive mode a.k.a REPL.");
+        case "i", "repl":
+            writeln("Runs interactive mode a.k.a REPL.");
             break;
-        case "d", "debug": writeln(
-            "<file>[.mmal]  Debugs a script.");
+        case "d", "debug":
+            writeln("<file>[.mmal]  Debugs a script.");
             break;
-        case "r", "run": writeln(
-            "<file>[.mmal]  Runs a script.");
+        case "r", "run":
+            writeln("<file>[.mmal]  Runs a script.");
+            break;
+        // TODO
+        // case "set%", "setspecver":
+        //     writeln(
+        //         "Sets the _specver_"
+        // /       ~"\nWhich should be used in current directory.");
+        //     break;
+        case "show%", "%":
+            writeln(
+                "Shows current _specver_"
+                ~"\nWich is used in current directory.");
             break;
         default:
-            writeHelpTopics("usage");
+            writeHelpTopics("h", "usage");
     }
 }
 
-void writeHelpTopics(string topic) {
-    writeln("Help  ...");
+void writeHelpTopics(string opt, string topic) {
+    opt   = opt.strip();
+    topic = topic.strip();
 
     switch (topic) {
-        case "", " ", "h", "help":
+        case "", " ", "usage":
             writeln(USAGE);
             break;
         case "e", "evaluate":
@@ -157,55 +201,36 @@ void writeHelpTopics(string topic) {
         case "r", "run":
             writeRunScriptHelp();
             break;
-        case "usage":
-            writeln(USAGE);
-            break;
         default:
             writefln("\nTopic [%s] is unknown.", topic);
     }
 }
 
-void handleVersion(string args) {
-    if (args.length == 0) {
-        writefln("%s\n%s", NAME, VERSION);
-    }
+void handleVersion() {
+    writefln("%s\n%s", NAME, VERSION);
 }
 
 void handleEvaluate(string optname, string optvalue) {
-    writeln("-- EVALUATION --");
-    writeln("Thanks for your input.");
+    import core.exception : ArrayIndexError;
 
-    debug writefln(
-          "\nName   %s"
-        ~ "\nValue  %s",
-        optname, optvalue);
+    optname  = optname.strip();
+    optvalue = optvalue.strip();
+    debug writefln("Option %s - %s\n", optname, optvalue[$-1]);
 
-    Tokenizer nizer = new Tokenizer(optvalue.split(" "));
-    if (!(endsWith(optvalue, '.') || endsWith(optvalue, "#"))) {
-        writeln("\nERROR  Sequence must end with [.] or [#].\n");
-        errorcode = 1;
-
-        debug writeln(optvalue[$-1]);
+    if (optvalue[$-1] != '#' && optvalue[$-1] != '.') {
+        writeln("Sequence must end with either `#` or `.`.");
         return;
     }
 
-    debug {
-        writeln();
-        writeln("Length:   ", nizer.length);
-        writeln("Sequence: ", nizer.rawseq);
-        writeln();
-    }
+    Tokenizer tzr = new Tokenizer(cast(RawSeq) optvalue.split(" "), ctx);
+    runTokenization(tzr);
 
-    string t = "\0";
-    while (nizer.next()) {
+    debug writeln("~ DONE");
+}
 
-        if (t == " " || t == "\0") continue;
-        debug writeln("Position: ", nizer.position);
-        t = nizer.current;
-        writeln(t);
-    }
-
-    writeln("--    DONE    --");
+void runTokenization (ref Tokenizer tzr) {
+    bool cont = tzr.next(ctx);
+    while (cont) cont = tzr.identify(ctx) && tzr.next(ctx);
 }
 
 void handleDebug(string optname, string optvalue) {
@@ -226,8 +251,23 @@ void runScript(string value) {
 }
 
 
+void setSpecver(string optvalue) {
+    debug writeln(optvalue);
+    writeln("NOT YET IMPLEMENTED.");
+}
+
+void showSpecver() nothrow {
+    try {
+        writefln("specver %s", SPECVER);
+    }
+    catch (Exception e) {
+        setError(cast(string) e.message, ErrorCode.Err);
+    }
+}
+
+
 void writeEvaluateHelp() {
-    writeln("Usage  -e / eval  <expression> #");
+    writeln("Usage  -e / eval \"<expression>\" #");
 }
 
 void writeREPLHelp() {
