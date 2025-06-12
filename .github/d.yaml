@@ -1,0 +1,2 @@
+- name: D Compiler Installation
+  uses: dlang-community/setup-dlang@v1.4.0
