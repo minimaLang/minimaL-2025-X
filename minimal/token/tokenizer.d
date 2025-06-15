@@ -49,14 +49,6 @@ enum State {
     Done,
 }
 
-class Context {
-    private {
-        State     _state_ = State.JustInitiated;
-        RawData   _raw_   = new RawData();
-        TokenData _token_ = new TokenData();
-    }
-}
-
 interface Data (T1, T2)
 {
     immutable(T1) sequence();
@@ -76,6 +68,10 @@ class RawData : TRawData {
 
     this(RawSeq seq) {
         this._sequence_ = seq;
+    }
+
+    this() {
+        this._sequence_ = RawSeq();
     }
 
     immutable(RawSeq) sequence() {
@@ -113,6 +109,10 @@ class TokenData : TTokenData {
         this._sequence_ = seq;
     }
 
+    this() {
+        this._sequence_ = TokenSeq();
+    }
+
     immutable(TokenSeq) sequence() {
         return cast(immutable) this._sequence_;
     }
@@ -139,6 +139,7 @@ class TokenData : TTokenData {
     }
 
     TokenData createAndAdd(Raw raw, TopCategory topcat, SubCategory subcat, Source src, uint req_pops) {
+        debug writefln("Token [%s] created.", raw);
         this._sequence_.insertBack(TokenData.create(raw, topcat, subcat, src, req_pops));
         return this;
     }
@@ -148,9 +149,42 @@ class TokenData : TTokenData {
     }
 }
 
+class Context {
+    private {
+        State     _state_ = State.JustInitiated;
+        RawData   _raw_   = new RawData();
+        TokenData _token_ = new TokenData();
+    }
+
+    ulong length() {
+        return this._raw_.length();
+    }
+
+    this(RawSeq rawseq) {
+        foreach (raw; rawseq) this._raw_.add(raw);
+    }
+
+    bool add(Token token) {
+        this._token_.add(token);
+    }
+
+    Raw get() {
+        return this._raw_.get();
+    }
+
+    immutable(TokenData) tokenData() {
+        return cast(immutable) this._token_;
+    }
+
+    immutable(RawData) rawData() {
+        return cast(immutable) this._raw_;
+    }
+}
 
 class Tokenizer
 {
+    private Context _context_;
+
     immutable(Tokenizer) tokenize() {
         while (this.identify() && this.next()) {}
         return cast(immutable) this;

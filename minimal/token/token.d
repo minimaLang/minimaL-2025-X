@@ -138,15 +138,6 @@ enum BuiltinCombinedGroup : dchar[2] {
 
 const string NEWLINES = "\r\n";
 
-class KnownToken (Raw raw, uint required: 1, uint optional: 1) : Token {
-
-    this() {
-        this.raw = raw;
-        this._pops_required_ = required;
-        this._pops_optional_ = optional;
-    }
-}
-
 struct TokenData {
     private string[] _extra_ = [];
 
@@ -161,90 +152,59 @@ struct TokenData {
     inout(string[]) extra() inout => _extra_;
 }
 
-class Token {
+// ---
 
-    protected {
-        TokenData _data_;
-        string _qualified_name_;
+import std.logger : FileLogger;
+import std.file;
+
+FileLogger error = new FileLogger(stderr);
+FileLogger info  = new FileLogger(stdout);
+
+interface Token {}
+
+class Identifier
+{
+    private Token   _current_;
+    private RawData _raw_ = "";
+    private bool    _identified_ = false;
+
+    bool next() {
+        this.identify(this._raw_.back);
+
+        if (!this._identified_) {
+            errorf("Could not identify token `[%s]`.", raw);
+            return false;
+        }
+
+        this._raw_.removeBack();
+        return true;
     }
 
-    uint pops_required()    const => this._data_.pops_required;
-    uint pops_optional()    const => this._data_.pops_optional;
-    inout(string[]) extra() inout => this._data_.extra;
-
-    bool unknown()
-        => this._data_.topcat == TopCategory.Unknown
-        && this._data_.subcat == SubCategory.Unknown;
-
-    immutable(Raw)         raw()    const pure @safe @nogc nothrow
-        => cast(immutable) _data_.raw;
-    immutable(TopCategory) topcat() const pure @safe @nogc nothrow
-        => cast(immutable) _data_.topcat;
-    immutable(SubCategory) subcat() const pure @safe @nogc nothrow
-        => cast(immutable) _data_.subcat;
-    immutable(Source)      source() const pure @safe @nogc nothrow
-        => cast(immutable) _data_.source;
-
-    immutable(string) qualified_name() const @nogc @safe pure nothrow
-        => this._qualified_name_;
-
-    override string toString() const @nogc @safe pure nothrow {
-        return this.raw;
+    protected void identify(Raw raw) {
+        this._identified_ =
+               this.identifyLiteral(raw)
+            || this.identifyOperator(raw)
+            || this.identifyImported(raw)
+            || this.identifyRoutine(raw)
     }
 
-    string opCast() const {
-        return this.raw;
+    protected bool identifyLiteral(raw) {
+        info.log("Not yet implemented.");
     }
 
-    override bool opEquals(Object other) const {
-        if(!is(other : Token) || !is(other : string)) return false;
-        return false;
+    protected bool identifyOperator(raw) {
+        info.log("Not yet implemented.");
     }
 
-    bool opEquals(Token other) const {
-        return (this.raw == other.raw);
+    protected bool identifyImported(raw) {
+        info.log("Not yet implemented.");
     }
 
-    bool opEquals(string other) const {
-        return (this.raw == other);
-    }
-
-    override size_t toHash() const @nogc @safe pure nothrow {
-        return hashOf(this.qualified_name);
-    }
-
-    this(
-        Raw raw,
-        immutable(TopCategory) topcat,
-        immutable(SubCategory) subcat,
-        immutable(Source)      source,
-        uint required_pops,
-        uint optional_pops,
-    ) {
-        this._data_.raw    = raw;
-        this._data_.topcat = topcat;
-        this._data_.subcat = subcat;
-        this._data_.source = source;
-        this._data_.pops_required = required_pops;
-        this._data_.pops_optional = optional_pops;
-        this.createQualifiedName();
-    }
-
-    protected void createQualifiedName() {
-        import std.format : format;
-        import std.conv   : to;
-
-        this._qualified_name_ =
-            "%s-top:%s-sub:%s-src:%s-(%s,%s)".format(
-                this.raw,
-                this._data_.topcat.to!string,
-                this._data_.subcat.to!string,
-                this._data_.source.to!string,
-                this._data_.pops_required.to!string,
-                this._data_.pops_optional.to!string
-            );
+    protected bool identifyRoutine(raw) {
+        info.log("Not yet implemented.");
     }
 }
+
 
 class Literal  (Raw token) : Token {}
 class Operator (Raw token, uint required, uint optional = 0)
