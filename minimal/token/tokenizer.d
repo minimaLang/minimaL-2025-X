@@ -50,312 +50,138 @@ enum State {
 }
 
 class Context {
+    private {
+        State     _state_ = State.JustInitiated;
+        RawData   _raw_   = new RawData();
+        TokenData _token_ = new TokenData();
+    }
+}
 
-    TokenizeState state;
-    TokenizeData  data;
+interface Data (T1, T2)
+{
+    immutable(T1) sequence();
+    T2 get();
+    void add(T2 item);
+    ulong length();
+    bool hasMore();
+}
 
-    ulong length() => this.data.length;
+alias TRawData   = Data!(RawSeq, Raw);
+alias TTokenData = Data!(TokenSeq, Token);
 
-    this(ref RawSeq rawseq) {
-        this.data  = TokenizeData(rawseq);
-        this.state = TokenizeState(rawseq.length);
+class RawData : TRawData {
+    private {
+        RawSeq _sequence_;
     }
 
-    TokenSeq tokseq() => this.data.tokseq;
-    RawSeq   rawseq() => this.data.rawseq;
-
-    Token token() {
-        writeln("this.data.tokseq");
-        return this.data.token = this.state.position;
-    }
-    Raw raw() {
-        return this.data.raw = this.state.position;
+    this(RawSeq seq) {
+        this._sequence_ = seq;
     }
 
-    void token(Token token) {
-        this.data.add(token);
-    }
-    void raw(Raw raw) {
-        this.data.add(raw);
+    immutable(RawSeq) sequence() {
+        return cast(immutable) this._sequence_;
     }
 
-    void advance(ulong position = 1) {
-        if (position < 1) position = 1;
-        this.state.advance(position);
-        this.state.current = this.data[this.state.position];
+    Raw get() {
+        scope(exit) this._sequence_.removeBack();
+        return this._sequence_.back;
     }
 
-    bool next() {
-        this.state.next;
-        this.state.current = this.data.get(this.state.position);
-        return this.state.more;
+    void add(Raw item) {
+        this._sequence_.insertBack(item);
     }
 
-    bool more() => (this.data.length > 0 && !this.state.done);
-
-    void markAsFail() {
-        this.state.markAsFail;
-    }
-    void markAsDone() {
-        this.state.markAsDone;
+    ulong length() {
+        return this._sequence_.length;
     }
 
-    bool hasValidPosition() const
-        => (this.state.position <= this.data.rawseq.length);
-    bool hasNoValidPosition() const => !hasValidPosition();
+    bool hasMore() {
+        return (this._sequence_.length > 0);
+    }
 
-    Context opOpAssign(string op: "~", T: Raw)(T value) {
-        this.data.add(value);
+    immutable(RawData) copy() {
+        return cast(immutable) this;
+    }
+}
+
+class TokenData : TTokenData {
+    private {
+        TokenSeq _sequence_;
+    }
+
+    this(TokenSeq seq) {
+        this._sequence_ = seq;
+    }
+
+    immutable(TokenSeq) sequence() {
+        return cast(immutable) this._sequence_;
+    }
+
+    Token get() {
+        scope(exit) this._sequence_.removeBack();
+        return this._sequence_.back;
+    }
+
+    void add(Token item) {
+        this._sequence_.insertBack(item);
+    }
+
+    ulong length() {
+        return this._sequence_.length;
+    }
+
+    bool hasMore() {
+        return (this._sequence_.length > 0);
+    }
+
+    immutable(TokenData) copy() {
+        return cast(immutable) this;
+    }
+
+    TokenData createAndAdd(Raw raw, TopCategory topcat, SubCategory subcat, Source src, uint req_pops) {
+        this._sequence_.insertBack(TokenData.create(raw, topcat, subcat, src, req_pops));
         return this;
     }
-    Context opOpAssign(string op: "~", T: Token)(T value) {
-        this.data.add(value);
-        return this;
-    }
 
-    Context opAssign(T: Token)(T value) {
-        this.data.add(value);
-        return this;
-    }
-    Context opAssign(T: Raw)(T value) {
-        this.data.add(value);
-        return this;
+    static Token create(Raw raw, TopCategory topcat, SubCategory subcat, Source src, uint req_pops) {
+        return new Token(raw, topcat, subcat, src, req_pops);
     }
 }
 
 
-struct TokenizeState {
-
-    protected {
-        State  _state_  = State.JustInitiated;
-        bool   _done_   = false;
-        bool   _failed_ = false;
-
-        ulong _line_     = 0;
-        ulong _column_   = 0;
-        ulong _position_ = 0;
-        ulong _length_   = 0;
-
-        string _stateName_;
-        Raw    _current_;
+class Tokenizer
+{
+    immutable(Tokenizer) tokenize() {
+        while (this.identify() && this.next()) {}
+        return cast(immutable) this;
     }
 
-    ulong line()     const => this._line_;
-    ulong column()   const => this._column_;
-    ulong position() const => this._position_;
+    bool identify() {
+        debug writefln("Token [%s]", this.context.raw);
 
-    ulong line(    ulong add) => this._line_     += add ? add > 0 : 1;
-    ulong column(  ulong add) => this._column_   += add ? add > 0 : 1;
-    ulong position(ulong add) => this._position_ += add ? add > 0 : 1;
-
-    bool  done()   const => this._done_;
-    bool  failed() const => this._failed_;
-
-    State state()   const => this._state_;
-    bool  running() const => (this._state_ == State.Running);
-
-    Raw current() const  => this._current_;
-    Raw current(Raw raw) => this._current_ = raw;
-
-    this (ulong length) {
-        assert(length > 0, "No 0-length allowed.");
-        this._length_    = length;
-        this._stateName_ = this._state_.to!string;
-    }
-
-    ulong length() => this._length_;
-
-    bool next() {
-        this._position_ += 1;
-        return (this._position_ != this.length);
-    }
-
-    bool more() => !(this.failed || this.done);
-
-    void markAsDone() { this._done_ = true; }
-    void markAsFail() { this.markAsDone(); this._failed_ = true; }
-
-    ulong advance(ulong position = 1, ulong column = 1) {
-        if (this.done) {
-            throw new Exception("Already done; can not advance.");
+        if (identifySingle()) {
+            debug writeln("Identified as Single.");
         }
-        this._position_ += position ? position < 1 : 1;
-        this._column_   += column   ? column   < 1 : 1;
-        this._state_     = State.Running;
-
-        return this.position ? !this._done_ : 0;
-    }
-
-    T opCast(T: State)() const {
-        return this._state_;
-    }
-
-    auto opAssign(T: State)(T value) {
-        this._state_ = value;
-        return this;
-    }
-
-    bool opEquals(State other) const {
-        return (this._state_ == other);
-    }
-
-    ulong toHash() const @safe pure nothrow {
-        import std.conv : to;
-        return hashOf(this._stateName_);
-    }
-}
-
-struct TokenizeData {
-    import std.string : assumeUTF;
-
-    RawSeq   rawseq = RawSeq();
-    TokenSeq tokseq = TokenSeq();
-
-    uint required_pops = 1;
-    uint optional_pops = 0;
-
-    TopCategory topcat = TopCategory.Unknown;
-    SubCategory subcat = SubCategory.Unknown;
-    Source      source = Source.Unknown;
-
-    bool  more()         const => (this.rawseq.length > 0);
-    ulong rawseqLength() const => this.rawseq.length;
-    ulong tokseqLength() const => this.tokseq.length;
-
-    Raw get(ulong atpos) const => this.rawseq[atpos];
-
-    bool has(ulong atpos) const =>
-        (this.rawseqLength < atpos) && (this.tokseqLength < atpos);
-
-    void add(TokenSeq tokenseq) { foreach(token; tokenseq) this.add(token); }
-    void add(RawSeq   rawseq)   { foreach(token; rawseq)   this.add(token); }
-
-    void add(Raw   token) { this.rawseq.insertBack(token); }
-    void add(Token token) { this.tokseq.insertBack(token); add(token.raw); }
-
-    ulong length() => this.rawseq.length;
-
-    Raw remove() {
-        ulong _count = this.rawseq.length;
-        Raw   _back  = this.rawseq.back;
-        this.rawseq.removeBack();
-
-        if (_count == this.rawseq.length) {
-            debug
-                writeln("Nothing removed.");
-            else
-                throw new Exception("Nothing removed.");
+        else if (identifyCombo()) {
+            debug writeln("Identified as Combo.");
+        }
+        else if (identifyUser()) {
+            debug writeln("Identified as User.");
+        }
+        else {
+            debug writeln("Could not been identified.");
         }
 
-        return _back;
-    }
+        debug writefln(
+            "(Identify)\n%s : %s (%s)\n",
+            this.context.data.topcat,
+            this.context.data.subcat,
+            this.context.data.source
+        );
 
-    Raw   raw   (size_t index) => this.rawseq[index];
-    Token token (size_t index) => this.tokseq[index];
-
-    Raw   raw   (Raw   token, size_t index) => this.rawseq[index] = token;
-    Token token (Token token, size_t index) => this.tokseq[index] = token;
-
-    auto opAssign(T: Token)(T value) {
-        this.add(value);
-        return this;
-    }
-
-    auto opAssign(T: Raw)(T value) {
-        this.add(value);
-        return this;
-    }
-
-    auto opAssign(T: Source)(T value) {
-        this.source = source;
-        return this;
-    }
-
-    auto opAssign(T: TopCategory)(T value) {
-        this.topcat = value;
-        return this;
-    }
-
-    auto opAssign(T: SubCategory)(T value) {
-        this.subcat = value;
-        return this;
-    }
-
-
-    ref Raw opIndex(size_t index) {
-        return this.rawseq[index];
-    }
-
-    T opIndexAssign(T: Raw)(T value, size_t index) {
-        return this.rawseq[index] = value;
-    }
-    T opIndexAssign(T: Token)(T value, size_t index) {
-        return this.tokseq[index] = value;
-    }
-
-    T opCast(T: TokenSeq)() const {
-        return this.tokseq;
-    }
-
-    T opCast(T: RawSeq)() const {
-        return this.rawseq;
-    }
-
-    bool opCast(T: bool)() const {
-        return this.rawseq.length > 0;
-    }
-}
-
-class Tokenizer {
-    private bool token_identified = false;
-    Context context;
-
-    Raw    raw()      => this.context.raw;
-    Token  token()    => this.context.token;
-    RawSeq sequence() => this.context.rawseq;
-
-    bool done()    const => this.context.state.done;
-    bool failed()  const => this.context.state.failed;
-    bool running() const => this.context.state.running;
-
-    this (RawSeq rawseq, ref Context ctx) {
-        if (ctx is null) ctx = new Context(rawseq);
-        this.context = ctx;
-    }
-
-    bool next() {
-
-        if (this.failed) {
-            throw new Exception(
-                "Tokenizer has failed. Can not continue.");
-            return false;
-        }
-        else if (this.done) {
-            throw new Exception(
-                "Tokenizer is already done. Can not continue.");
-        }
-        else if (this.context.state.position == this.context.data.length) {
-            debug writeln("Reached end of `rawseq`; marking as done.");
-            this.context.markAsDone();
-            return false;
-        }
-
-        if (!this.identify) {
-            import std.format;
-            throw new Exception(
-                "Unidentifiable token [%s]".format(
-                this.context.raw));
-            return false;
-        }
-
-        this.context.next;
-
-        if (this.context.state.running) {
-            this.context.state.advance;
-            this.context.state.current;
-        }
-
-        return this.context.more();
+        bool success = false;
+        scope(success) success = true;
+        return success;
     }
 
     bool identifySingle() {
@@ -460,38 +286,5 @@ class Tokenizer {
         debug writeln("(identifyUser)");
 
         return false;
-    }
-
-    bool identify() {
-        debug writefln("Token [%s]", this.context.raw);
-
-        if (identifySingle()) {
-            debug writeln("Identified as Single.");
-        }
-        else if (identifyCombo()) {
-            debug writeln("Identified as Combo.");
-        }
-        else if (identifyUser()) {
-            debug writeln("Identified as User.");
-        }
-        else {
-            debug writeln("Could not been identified.");
-        }
-
-        debug writefln(
-            "(Identify)\n%s : %s (%s)\n",
-            this.context.data.topcat,
-            this.context.data.subcat,
-            this.context.data.source
-        );
-
-        bool success = false;
-        scope(success) success = true;
-        return success;
-    }
-
-    immutable(Tokenizer) tokenize() {
-        while (this.identify() && this.next()){}
-        return cast(immutable) this;
     }
 }
