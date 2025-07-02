@@ -366,6 +366,8 @@ FodyWeavers.xsd
 # More
 *txt
 *dub
+$*
+*~*
 
 *vscode
 docs.*
