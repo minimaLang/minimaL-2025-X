@@ -1,0 +1,18 @@
+4 3 + = . ; 7 is on the stack and this is a comment ...
+
+` Hello World ' .
+
+( ^ ) print .
+
+:
+
+x = 0
+label ..
+  [ y ]
+  {
+    ( y ) print .
+  } p .
+
+x 5 < ?: label $j.
+
+#
