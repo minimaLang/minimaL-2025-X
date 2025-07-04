@@ -100,6 +100,12 @@ final class State
     }
 }
 
+alias TokenStack    = Token[];
+alias StringStack   = string[];
+alias VariableStack = Variable[];
+alias RoutineStack  = Routine[];
+alias ContextStack  = Context[];
+
 interface ContextInterface
 {
     immutable(OutBuffer)   view();
@@ -116,13 +122,13 @@ interface ContextInterface
 final class Context : ContextInterface
 {
     private:
-    StringStack _instack_  = StringStack();
-    TokenStack  _outstack_ = TokenStack();
+    StringStack _instack_  = StringStack.init;
+    TokenStack  _outstack_ = TokenStack.init;
     OutBuffer   _view_     = new OutBuffer();
     State       _state_    = new State();
 
-    static VariableList varlist = VariableList();
-    static RoutineList  roulist = RoutineList();
+    static VariableStack varstack = VariableStack.init;
+    static RoutineStack  roustack = RoutineStack.init;
 
     public:
     this(in StringStack outstack, in TokenStack instack) {
@@ -424,7 +430,7 @@ class Literal : Token
     }
 
     this(ref Context context, string symbol, long value) {
-        super(context, ".l"~symbol~"l.", TokenType.Literal, "<L>", value);
+        super(context, symbol, TokenType.Literal, "<L>", value);
     }
 
     override bool isLiteral() => true;
@@ -440,7 +446,7 @@ class Value : Token
 class Variable : Value
 {
     this(ref Context context, long value, string name) {
-        super(context, name~"="~(cast(string) value), "<"~name~">", value);
+        super(context, name~"="~(cast(string) value), "<R-"~name~">", value);
     }
 }
 
@@ -620,14 +626,7 @@ class Operator : Token, OperatorInterface
     }
 }
 
-VariableList createVarList(Variable a, ...) {
-    return cast(VariableList) _arguments;
-}
-
-RoutineList createRoutineList(Routine a, ...) {
-    return cast(RoutineList) _arguments;
-}
-
-ContextList createContextList(Context a, ...) {
-    return cast(ContextList) _arguments;
+// TODO
+TStack create(TStack, TType)(TType a, ...) {
+    return cast(TStack) _arguments;
 }

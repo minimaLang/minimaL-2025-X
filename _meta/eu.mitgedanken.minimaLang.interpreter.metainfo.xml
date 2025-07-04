@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- /usr/share/metainfo/ -->
+<component type="console-application">
+  <id>eu.mitgedanken.minimaLang.interpreter</id>
+  
+  <name>minimaL interpreter</name>
+  <summary>An interpreter for minimaLang</summary>
+  
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT-Modern-Variant</project_license>
+  
+  <description>
+    <p>
+      minimaLang (or short minimaL or even mmal) is a stack based programming language based on RPN (Reverse Polish Notation).
+      This program is its interpreter implementation.
+    </p>
+  </description>
+  
+  <icon type="stock">minimaL-interpreter</icon>
+  
+  <categories>
+    <category>Development</category>
+    <category>Building</category>
+  </categories>
+  
+  <provides>
+    <binary>mmalrun</binary>
+  </provides>
+</component>

@@ -3,7 +3,7 @@ module minimal.tokenization.tokenizer;
 debug import std.stdio            : writeln, writefln, writef;
 import std.container.array        : Array;
 import minimal.error.predefined   : SyntaxError, InputError, log;
-import minimal.tokenization.types : Context, State, Token, TokenStack;
+import minimal.tokenization.types : Context, State, Token, TokenStack, StringStack;
 
 interface Interface
 {
@@ -51,7 +51,7 @@ final class Tokenizer : Interface
 
 final class Identifier
 {
-    import minimal.tokenization.
+    // import minimal.tokenization.
     private:
     Context _context_;
     State   _state_;
