@@ -2,8 +2,10 @@ module minimal.tokenization.tokenizer;
 
 debug import std.stdio            : writeln, writefln, writef;
 import std.container.array        : Array;
-import minimal.error.predefined   : SyntaxError, InputError, log;
-import minimal.tokenization.types : Context, State, Token, TokenStack, StringStack;
+import std.outbuffer              : OutBuffer;
+import minimal.error.predefined   : SyntaxError, InputError;
+import minimal.error.errors       : ErrorList;
+import minimal.tokenization.types;
 
 interface Interface
 {
@@ -11,16 +13,22 @@ interface Interface
     ulong line();
     ulong column();
     ulong position();
+
+    immutable(Context) context();
 }
 
 final class Tokenizer : Interface
 {
     private:
-    Identifier _identifier_;
+           Identifier _identifier_;
+    shared Context    _context_;
+    shared TokenList  _tokens_;
+    shared StringList _strings_;
 
     public:
-    this(ref Context context, StringStack strings, TokenStack tokens) {
-        this._identifier_ = Identifier(context, State(), strings, tokens);
+    this(ref Context context) {
+        if (context is null) context = new Context(view, strings, tokens);
+        this._identifier_ = new Identifier(context, State.JustInitialized, strings, tokens);
     }
 
     void tokenize()
@@ -31,21 +39,45 @@ final class Tokenizer : Interface
                 this._identifier_.token = new ErrorToken("<NotEvaluable>", "Token [%s] not evaluable.".format(token));
             }
             else {
-                this._state_.nextPosition();
+                this._context_._state_.nextPosition();
             }
         }
     }
 
+    immutable(Context) context() => cast(immutable) this._context_;
+
     ulong line() {
-        return this._state_.line;
+        return this._context_.line;
     }
 
     ulong column() {
-        return this._state_.column;
+        return this._context_.column;
     }
 
     ulong position() {
-        return this._state_.position;
+        return this._context_.position;
+    }
+
+    void nextLine(ulong add = 1)
+    in {
+        assert(add > 0);
+    } do {
+        this._line_ += add;
+    }
+
+    void nextColumn(ulong add = 1)
+    in {
+        assert(add > 0);
+    } do {
+        this._column_ += add;
+    }
+
+    void nextPosition(ulong add = 1)
+    in  {
+        assert(add > 0);
+        assert((this._line_ + this._column_) <= (this._position_ + add));
+    } do {
+        this._position_ += add;
     }
 }
 
@@ -57,14 +89,14 @@ final class Identifier
     State   _state_;
 
     public:
-    this(ref Context context, ref State state, in StringStack strings, in TokenStack tokens) {
-        if (context is null) this._context_ = Context(strings, tokens);
-        if (state   is null) this._state_   = State();
+    this(ref in Context context, in StringList strings, in TokenList tokens) {
+        this._context_ = context;
     }
 
-    immutable(TokenStack)  tokens  () => cast(immutable) this._context_.tokens;
-    immutable(StringStack) strings () => cast(immutable) this._context_.strings;
-    immutable(State)       state   () => cast(immutable) this._state_;
+    immutable(TokenList)  tokens  () => cast(immutable) this._context_.tokens;
+    immutable(StringList) strings () => cast(immutable) this._context_.strings;
+
+    State state() => this._state_;
 
     void push(ref Token token) {
         this._context_.tokens ~= token;

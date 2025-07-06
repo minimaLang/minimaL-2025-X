@@ -1,6 +1,6 @@
 module minimal.error.errors;
 
-import std.array  : Array;
+import std.array  : array;
 import std.path   : isValidPath, asRelativePath, asAbsolutePath;
 import std.format : format;
 
@@ -17,15 +17,14 @@ interface IError
     immutable(IError) previous();
     bool              catchable();
 
-    void raise();
-    bool trycatch();
-    bool trycatch(bool delegate(IError) dg);
-    bool noraise  (bool delegate(IError) dg);
-    bool ok();
+    void raise    ();
+    bool trycatch (bool delegate(IError) dg);
+    bool noraise  (bool delegate(IError) nothrow dg) nothrow;
+    bool ok       ();
 
-    uint       code();
-    string     message();
-    ErrorLevel level();
+    uint       code    ();
+    string     message ();
+    ErrorLevel level   ();
 
     string messagef(string fmt);
 
@@ -35,9 +34,13 @@ interface IError
 }
 
 alias ContextList = Context[];
-alias ErrorList   = BaseError[];
+alias ErrorList   = IError[];
 
-ErrorList list = ErrorList.init;
+ErrorList __list = ErrorList.init;
+
+void __addToList(IError error) {
+    .__list ~= error;
+}
 
 struct Context
 {
@@ -47,23 +50,53 @@ struct Context
     ulong   _column   = 0;
     ulong   _position = 0;
     string  _file     = "{NONE}";
-    IError  _previous;
+    string  _string   = "";
 
-    this(string name) {
-        this._name  = name;
+    bool   _catchable;
+    IError _previous;
+
+    public:
+    this(string name, string file = "{NONE}") {
+        this._name   = name;
+        this._file   = file;
+        this._string = this._name ~ ":" ~ this._file;
     }
 
-    this(string name, IError previous) {
-        this._name     = name;
+    this(string name, string file, IError previous) {
+        this(name, file);
         this._previous = previous;
     }
 
-    this(string name, IError previous, ulong line, ulong column, ulong position = 0) {
-        this(name, previous);
+    this(string name, IError previous, ulong line, ulong column, ulong position = 0)
+    in {
+        assert(name.length > 0);
+    } do {
+        line   = line   ? (line   > 0) : 1;
+        column = column ? (column > 0) : 1;
+
+        this(name, "{NONE}", previous);
+        this._line     = line   ? (line   > 0) : 1;
+        this._column   = column ? (column > 0) : 1;
+        this._position = position;
+    }
+
+    void set(ulong line, ulong column, ulong position) {
         this._line     = line;
         this._column   = column;
         this._position = position;
     }
+
+    IError previous()  => this._previous;
+    bool   catchable() => this._catchable;
+
+    ulong  line()     => this._line;
+    ulong  column()   => this._column;
+    ulong  position() => this._position;
+    string name()     => this._name;
+    string file()     => this._file;
+
+    string toString() const => this._string;
+    long   toHash()   const => hashOf(this._string);
 }
 
 class BaseError : IError
@@ -76,24 +109,30 @@ class BaseError : IError
     ErrorLevel _level;
     Context    _context;
 
+    void _addToList() {
+        .__list ~= this;
+    }
+
     public:
     this(string message, uint code, ErrorLevel level, out Context context) {
         this(message, code, level);
         this._context = Context("{Error}");
         context = this._context;
+        this._addToList();
     }
 
     this(string message, uint code, ErrorLevel level) {
         this._message = message;
         this._code    = code;
         this._level   = level;
+        this._addToList();
     }
 
-    immutable(IError) previous()  => this._context.previous;
+    immutable(IError) previous()  => cast(immutable) this._context.previous;
     bool              catchable() => this._context.catchable;
 
     void raise() {
-        throw new Exception("[%s] %s".format(this._code, this._message);
+        throw new Exception("[%s] %s".format(this._code, this._message));
     }
 
     bool trycatch() {
@@ -111,7 +150,7 @@ class BaseError : IError
         return ok;
     }
 
-    bool noraise(bool delegate(IError) dg) nothrow {
+    bool noraise(bool delegate(IError) nothrow dg) nothrow {
         return dg(this);
     }
 
@@ -119,25 +158,55 @@ class BaseError : IError
         return (this.level == ErrorLevel.OK);
     }
 
-    uint       code();
-    string     message();
-    ErrorLevel level();
+    uint       code()    => this._code;
+    string     message() => this._message;
+    ErrorLevel level()   => this._level;
 
-    string messagef(string fmt);
+    string messagef(string fmt) => fmt.format(this._code, this._message);
 
-    T opCast (T: bool)    () const;
-    T opCast (T: Context) () const;
-    T opCast (T: uint)    () const;
+    T opCast (T: bool)    () const => this._catchable;
+    T opCast (T: Context) () const => this._context;
+    T opCast (T: uint)    () const => this._code;
+}
+
+ErrorLevel levelByCode (uint code) {
+    ErrorLevel lv;
+
+    switch (code) {
+        case 0:
+            lv = ErrorLevel.OK;
+            break;
+        case 1, 2:
+            lv = ErrorLevel.Info;
+            break;
+        case 3, 4, 5:
+            lv = ErrorLevel.Warning;
+            break;
+        case 6, 7, 8, 9, 10:
+            lv = ErrorLevel.Error;
+            break;
+        default:
+            lv = ErrorLevel.Critical;
+    }
+    return lv;
 }
 
 final class NoError : IError
 {
+    private:
+    string  _message_;
+    Context _context_;
+
     public:
     this(string message, Context context) {
-        super(message, 0, ErrorLevel.OK, context);
+        this._message_ = message;
+        this._context_ = context;
+        this.__addToList();
     }
 
-    this() {}
+    this() {
+        this.__addToList();
+    }
 
     immutable(IError) previous()            => cast(immutable) this;
     bool catchable()                        => true;
@@ -146,143 +215,30 @@ final class NoError : IError
     bool trycatch(bool delegate(IError) dg) => true;
 
     void raise() {
-        debug writeln("{ NoError.raise   }");
+        debug {
+            import std.stdio;
+            writeln("{NoError.raise}");
+        }
     }
 
-    void noraise() nothrow {
-        debug writeln("{ NoError.nocatch }");
+    bool noraise(bool delegate(IError) nothrow dg) {
+        debug {
+            import std.stdio;
+            writeln("{NoError.noraise}");
+        }
+        return true;
     }
 
-    string     message() => this._message_;
-    uint       code()    => this._code_;
-    ErrorLevel level()   => this._level_;
+    string     message () => this._message_;
+    uint       code    () => 0;
+    ErrorLevel level   () => ErrorLevel.OK;
 
     string messagef(string fmt) {
-        return fmt.format(this.code, this.message);
+        return fmt.format(0, this.message);
     }
 
     T opCast(T: bool)      () const => this.catchable;
     T opCast(T: Context)   () const => this._context_;
     T opCast(T: uint)      () const => this._code_;
     T opCast(T: BaseError) () const => new BaseError(this.level, this.message, this.code);
-}
-
-class BaseError : IError
-{
-    public import std.logger : FileLogger;
-
-    private:
-    FileLogger _logger_   = new FileLogger("Errors.log");
-    Context    _context_;
-
-    protected:
-    ErrorLevel _level_     = ErrorLevel.OK;
-    string     _message_   = "OK";
-    uint       _code_      = 0;
-    bool       _catchable_ = false;
-    bool       _resolved_  = false;
-
-    public:
-    this(ErrorLevel lv, string message, uint code, ulong line, ulong column, ulong position = 0, string file = "{NONE}", IError prev = new NoError()) {
-        this.setup(lv, message, code, line, column, position, file, prev);
-        .list.insertFront(this);
-    }
-
-    this(string message, uint code, ulong line, ulong column, ulong position = 0, string file = "{NONE}", IError prev = new NoError()) {
-        ErrorLevel lv;
-
-        switch (code) {
-            case 0:
-                lv = ErrorLevel.OK;
-            break;
-            case 1, 2:
-                lv = ErrorLevel.Info;
-            break;
-            case 3, 4, 5:
-                lv = ErrorLevel.Warning;
-            break;
-            case 6, 7, 8, 9, 10:
-                lv = ErrorLevel.Error;
-            break;
-            default:
-                lv = ErrorLevel.Critical;
-        }
-
-        this.setup(lv, message, code, line, column, position, file);
-        this._previous_ = prev;
-        .list.insertBack(this);
-    }
-
-    void replaceLogfile(string file)
-    in (isValidPath(asRelative(file))) {
-        string path   = buildNormalizedPath(getcwd, asRelative(file));
-        this._logger_ = new shared FileLogger(path);
-    }
-
-    void log() {
-        switch (this._level_) {
-            case ErrorLevel.OK:       break;
-            case ErrorLevel.Info:     this._logger_.info(this.message);     break;
-            case ErrorLevel.Warning:  this._logger_.warning(this.message);  break;
-            case ErrorLevel.Error:    this._logger_.error(this.message);    break;
-            case ErrorLevel.Critical: this._logger_.critical(this.message); break;
-            default:                  this._logger_.log(this._message_);
-        }
-    }
-
-    immutable(FileLogger) logger()   => cast(immutable) this._logger_;
-    immutable(IError)     previous() => cast(immutable) this._previous_;
-
-    bool catchable()
-    in (this._level_ != ErrorLevel.OK) {
-        return (this._level_ != ErrorLevel.Critical);
-    }
-
-    void raise()
-    in (this._level_ != ErrorLevel.OK) {
-        if(!catchable) this.nocatch();
-    }
-
-    bool trycatch()
-    in (this._level_ != ErrorLevel.OK) {
-        if(this.catchable) return true;
-        this.raise();
-        return false;
-    }
-
-    bool trycatch(bool delegate(IError) dg) {
-        if(this.catchable) return true;
-        return dg(this);
-    }
-
-    void nocatch()
-    in (this._level_ != ErrorLevel.OK) {
-        import std.format : format;
-        string message = "[%s]: %s".format(this._code_, this._message_);
-        throw new Exception(message);
-    }
-
-    bool ok() => (this._level_ == ErrorLevel.OK);
-
-    string message() {
-        return this.messagef("[%s] %s");
-    }
-
-    string messagef(string fmt) {
-        return fmt.format(cast(string) this.code, this.message);
-    }
-
-    uint    code    () const => this._code_;
-    Context context () const => this._context_;
-
-    T opCast(T: bool)    () const => this.catchable;
-    T opCast(T: Context) () const => this._context_;
-    T opCast(T: uint)    () const => this._code_;
-
-    private void setup(ErrorLevel lv, string message, uint code, ulong line, ulong column, ulong position = 0, string file = "{NONE}") pure {
-        this._level_   = lv;
-        this._message_ = message;
-        this._code_    = code;
-        this._context_ = Context(line, column, position, file, this);
-    }
 }

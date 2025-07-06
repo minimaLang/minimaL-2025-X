@@ -8,12 +8,14 @@ import std.conv            : to;
 import core.vararg;
 
 import minimal.error.predefined : SyntaxError, InputError;
+import minimal.error.errors     : ErrorList;
 
 enum TokenType {
     Any, None,
 
     LineEnd,
 
+    Operator,
     MathOperator,
     LogicOperator,
     UnaryOperator,
@@ -25,6 +27,7 @@ enum TokenType {
     Block,
 
     Value,
+    Variable,
     String,
     Routine,
 
@@ -35,129 +38,219 @@ enum TokenType {
     ERROR //.
 }
 
-final class State
-{
-    private:
-    ulong _line_     = 0;
-    ulong _column_   = 0;
-    ulong _position_ = 0;
-    bool  _failed_   = false;
-
-    InputError  _input_error_;
-    SyntaxError _syntax_error_;
-
-    public:
-    this() { this(0, 0); }
-
-    this(ulong line, ulong column, ulong position = 0, bool failed = false) {
-        this._line_     = line;
-        this._column_   = column;
-        this._position_ = position;
-        this._failed_   = failed;
-    }
-
-    void setError(InputError error) {
-        this.markAsFailed();
-        this._input_error_ = error;
-    }
-
-    void setError(SyntaxError error) {
-        this.markAsFailed();
-        this._syntax_error_ = error;
-    }
-
-    void markAsFailed() { this._failed_ = true; }
-    bool hasFailed()   => this._failed_;
-
-    ulong nextLine(ulong add = 1)
-    in (add > 0) {
-        this._line_ += add;
-        return this._line_;
-    }
-
-    ulong nextColumn(ulong add = 1)
-    in (add > 0) {
-        this._column_ += add;
-        return this._column_;
-    }
-
-    ulong nextPosition(ulong add = 1)
-    in (add > 0) {
-        this._position_ += add;
-        return this._position_;
-    }
-
-    immutable(ulong) line() {
-        return cast(immutable) this._line_;
-    }
-
-    immutable(ulong) column() {
-        return cast(immutable) this._column_;
-    }
-
-    immutable(ulong) position() {
-        return cast(immutable) this._position_;
-    }
-}
-
-alias TokenStack    = Token[];
-alias StringStack   = string[];
-alias VariableStack = Variable[];
-alias RoutineStack  = Routine[];
-alias ContextStack  = Context[];
+alias TokenList    = Token[];
+alias StringList   = string[];
+alias VariableList = Variable[];
+alias RoutineList  = Routine[];
+alias ContextList  = Context[];
 
 interface ContextInterface
 {
-    immutable(OutBuffer)   view();
-    immutable(TokenStack)  tokens();
-    immutable(StringStack) strings();
+    immutable(TokenList*) tokens  ();
+    immutable(StringList) strings ();
+    immutable(ErrorList)  errors  ();
+    immutable(OutBuffer*) view    ();
 
     bool failed();
-    void nextState();
 
     void   write(string content);
     string read();
 }
 
+interface StateInterface
+{
+    ulong line();
+    ulong column();
+    ulong position();
+
+    void nextLine     (ulong);
+    void nextColumn   (ulong);
+    void nextPosition (ulong);
+
+    void next(ulong[] ...);
+}
+
+final class State : StateInterface
+{
+    public:
+    enum State { JustInitialized, Started, Done }
+    enum JustInitialized = State.JustInitialized;
+    enum Started         = State.Started;
+    enum Done            = State.Done;
+
+    private:
+    ulong _line_;
+    ulong _column_;
+    ulong _position_;
+    
+    State _state_  = JustInitialized;
+    bool  _failed_ = false;
+
+    public:
+    this(ulong line = 1, ulong column = 1, ulong position = 0)
+    in {
+        assert(line   > 0);
+        assert(column > 0);
+        assert(position <= (line + column)-2);
+    }
+    do {
+        this._line_     = line;
+        this._column_   = column;
+        this._position_ = position;
+    }
+
+    State state()  => this._state_;
+    bool  failed() => this._failed_;
+    void  failed(bool value) {
+        this._failed_ = value;
+    }
+
+    ulong line() {
+        return this._line_;
+    }
+
+    ulong column() {
+        return this._column_;
+    }
+
+    ulong position() {
+        return this._position_;
+    }
+
+    void nextLine(ulong add = 1)
+    in {
+        assert(add > 0);
+    }
+    do {
+        this._line_ += add;
+    }
+
+    void nextColumn(ulong add = 1)
+    in {
+        assert(add > 0);
+    }
+    do {
+        this._column_ += add;
+    }
+
+    void nextPosition(ulong add = 1)
+    in {
+        assert(add > 0);
+        assert((this.position <= (this.line + this.position)-2));
+    }
+    do {
+        this._position_ += add;
+    }
+
+    void next(ulong[] lu ...)
+    in {
+        assert(lu.length < 4);
+        assert(lu.length > 0);
+    }
+    do {
+        import std.range : enumerate;
+        import core.vararg;
+
+        ulong count = lu.length;
+        foreach (ulong i, a; enumerate(lu)) {
+            switch (i) {
+                case 0:
+                    this.nextLine(a);
+                break;
+                case 1: 
+                    this.nextColumn(a);
+                break;
+                case 2: 
+                    this.nextPosition(a);
+                break;
+                default:
+                    errorf("Invalid argument count; [%s].", count);
+            }
+        }
+    }
+}
+
 final class Context : ContextInterface
 {
     private:
-    StringStack _instack_  = StringStack.init;
-    TokenStack  _outstack_ = TokenStack.init;
-    OutBuffer   _view_     = new OutBuffer();
-    State       _state_    = new State();
+    OutBuffer* _view_;
+    TokenList* _tokens_;
 
-    static VariableStack varstack = VariableStack.init;
-    static RoutineStack  roustack = RoutineStack.init;
+    State      _state_;
+    StringList _strings_ = StringList.init;
+    ErrorList  _errors_  = ErrorList.init;
+
+    ulong _line_     = 1;
+    ulong _column_   = 1;
+    ulong _position_ = 1;
 
     public:
-    this(in StringStack outstack, in TokenStack instack) {
-        this._outstack_ = outstack;
-        this._instack_  = instack;
+    this(OutBuffer* view) {
+        this._view_  = view;
+        this._state_ = new State();
     }
 
-    this(in StringStack outstack, in TokenStack instack, out OutBuffer view) {
-        this._outstack_ = outstack;
-        this._instack_  = instack;
-        view = this._view_;
+    this(OutBuffer* view, ref StringList strings, TokenList* tokens) {
+        this(view);
+        this._strings_ = strings;
+        this._tokens_  = tokens;
     }
 
-    immutable(OutBuffer)   view()    => cast(immutable) this._view_;
-    immutable(TokenStack)  tokens()  => cast(immutable) this._outstack_;
-    immutable(StringStack) strings() => cast(immutable) this._instack_;
+    this(OutBuffer* view, in StringList strings, TokenList* tokens) {
+        this(view);
+        this._strings_ = strings;
+        this._tokens_  = tokens;
+    }
 
-    bool failed() => this._state_.hasFailed;
+    Context dup() => new Context(this._view_, this.strings, this._tokens_);
 
-    void   write(string content) { this._view_.write(content); }
-    string read() => this._view_.toString;
+    State state() => this._state_;
+
+    immutable(TokenList*) tokens()  => cast(immutable) this._tokens_;
+    immutable(StringList) strings() => cast(immutable) this._strings_;
+    immutable(ErrorList)  errors()  => cast(immutable) this._errors_;
+    immutable(OutBuffer*) view()    => cast(immutable) this._view_;
+
+    bool failed() => (this.errors.length > 0);
+
+    void write(string content) {
+        this._view_.write(content);
+    }
+
+    string read() => this._view_.toString();
+
+    ulong line()     => this._line_;
+    ulong column()   => this._column_;
+    ulong position() => this._position_;
+
+    void nextLine(ulong add = 1)
+    in {
+        assert(add > 0);
+    } do {
+        this._line_ += add;
+    }
+
+    void nextColumn(ulong add = 1)
+    in {
+        assert(add > 0);
+    } do {
+        this._column_ += add;
+    }
+
+    void nextPosition(ulong add = 1)
+    in  {
+        assert(add > 0);
+        assert((this._line_ + this._column_) <= (this._position_ + add));
+    } do {
+        this._position_ += add;
+    }
 }
 
 interface TokenInterface
 {
-    immutable(string)    name();
+    immutable(Context)   context();
     immutable(string)    symbol();
     immutable(TokenType) type();
-    immutable(Context)   context();
 
     TokenType[] expect();
 
@@ -192,38 +285,18 @@ class Token : TokenInterface
     Context   _context;
     string    _symbol;
     TokenType _type;
-    string    _name;
-    ulong     _value;
 
     public:
-    this (ref Context context, string symbol, TokenType type = TokenType.Any, string name = "", long value = 0) {
+    this (ref Context context, string symbol, TokenType type) {
         this._context = context;
         this._symbol  = symbol;
         this._type    = type;
-        this._value   = value;
-
-        if (name.length == 0) {
-            if (this._type == TokenType.Any) {
-                name = "<*>";
-            }
-            else if (this._type == TokenType.None) {
-                name = "< >";
-            }
-            else if (this._type == TokenType.ERROR) {
-                name = "<E>";
-            }
-            else {
-                throw new Exception("Name is required!");
-            }
-        }
-
-        this._name = name;
     }
 
     TokenType[] expect() => [TokenType.Any, TokenType.None];
 
-    immutable(string) name() {
-        return cast(immutable) this.Name;
+    immutable(Context) context() {
+        return cast(immutable) this._context;
     }
 
     immutable(string) symbol() {
@@ -234,107 +307,100 @@ class Token : TokenInterface
         return cast(immutable) this._type;
     }
 
-    immutable(Context) context() {
-        return cast(immutable) this._context;
-    }
-
-    immutable(ulong) value() {
-        return cast(immutable) this._value;
-    }
-
-    bool isLineEnd() {
-        static if (this.type == TokenType.LineEnd) return true;
+    bool isLineEnd() const {
+        if (this._type == TokenType.LineEnd) return true;
         return false;
     }
 
-    bool isOperator() {
-        static if (
-               this.type == TokenType.MathOperator
-            || this.type == TokenType.LogicOperator
-            || this.type == TokenType.UnaryOperator
-            || this.type == TokenType.StackOperator
-            || this.type == TokenType.SpecialOperator
+    bool isOperator() const {
+        if (
+               this._type == TokenType.MathOperator
+            || this._type == TokenType.LogicOperator
+            || this._type == TokenType.UnaryOperator
+            || this._type == TokenType.StackOperator
+            || this._type == TokenType.SpecialOperator
         ) {
             return true;
         }
         return false;
     }
 
-    bool isLabel() {
-        static if (this.type == TokenType.Label) return true;
+    bool isLabel() const {
+        return (this._type == TokenType.Label);
+    }
+
+    bool isValue() const {
+        return (this._type == TokenType.Value);
+    }
+
+    bool isVariable() const {
+        return (this._type == TokenType.Variable);
+    }
+
+    bool isTuple() const {
+        return (this._type == TokenType.Tuple);
+    }
+
+    bool isBlock() const {
+        if (this._type == TokenType.Block) return true;
         return false;
     }
 
-    bool isTuple() {
-        static if (this.type == TokenType.Tuple) return true;
+    bool isString() const {
+        if (this._type == TokenType.String) return true;
         return false;
     }
 
-    bool isBlock() {
-        static if (this.type == TokenType.Block) return true;
+    bool isRoutine() const {
+        if (this._type == TokenType.Routine) return true;
         return false;
     }
 
-    bool isValue() {
-        static if (this.type == TokenType.Value) return true;
-        return false;
-    }
-
-    bool isString() {
-        static if (this.type == TokenType.String) return true;
-        return false;
-    }
-
-    bool isRoutine() {
-        static if (this.type == TokenType.Routine) return true;
-        return false;
-    }
-
-    bool isLiteral() {
-        static if (
-               this.type == TokenType.Alpha
-            || this.type == TokenType.Number
-            || this.type == TokenType.Value
+    bool isLiteral() const {
+        if (
+               this._type == TokenType.Alpha
+            || this._type == TokenType.Number
+            || this._type == TokenType.Value
         ) {
             return true;
         }
         return false;
     }
 
-    bool isNumber() {
-        static if (this.type == TokenType.Number) return true;
+    bool isNumber() const {
+        if (this._type == TokenType.Number) return true;
         return false;
     }
 
-    bool isAlpha() {
-        static if (this.type == TokenType.Alpha) return true;
+    bool isAlpha() const {
+        if (this._type == TokenType.Alpha) return true;
         return false;
     }
 
-    bool isError() {
-        static if (this.type == TokenType.ERROR) return true;
+    bool isError() const {
+        if (this._type == TokenType.ERROR) return true;
         return false;
     }
 
-    bool isAny() {
-        static if (this.type == TokenType.Any) return true;
+    bool isAny() const {
+        if (this._type == TokenType.Any) return true;
         return false;
     }
 
-    bool isNone() {
-        static if (this.type == TokenType.None) return true;
+    bool isNone() const {
+        if (this._type == TokenType.None) return true;
         return false;
     }
 
-    Token opEvaluate() const {
-        static      if (this.isLiteral)  return this;
-        else static if (this.isOperator) return this.opOperate();
-        debug warning("`opEvaluate` must be overridden; return `this`.");
+    Token opEvaluate() {
+        if (this.isLiteral) return new Token(this._context, this._symbol, this._type);
+        else if (this.isOperator) return this.opOperate();
+        debug warningf("`%s` must be overridden; return `%s`.", "opEvaluate", "this");
         return this;
     }
 
     Token opOperate() {
-        return new ErrorToken("<NotAnOperator>", "This is not an operator or must be overridden.");
+        return new ErrorToken(this._context, "<NotAnOperator>", "This is not an operator or must be overridden.");
     }
 
     bool opEquals(T: Token)(T other) const {
@@ -342,15 +408,15 @@ class Token : TokenInterface
     }
 
     override ulong toHash() const nothrow @trusted {
-        return hashOf(this.symbol);
+        return hashOf(this._symbol);
     }
 
     int opCmp(T: Token)(T other) const {
-        if (this.type == TokenType.Any)
+        if (this._type == TokenType.Any)
             return 0;
-        if (this.type == TokenType.None && other.type != TokenType.None)
+        if (this._type == TokenType.None && other._type != TokenType.None)
             return -1;
-        if (this.type == other.type) return cmp(this.symbol, other.symbol);
+        if (this._type == other._type) return cmp(this.symbol, other.symbol);
         return 1;
     }
 }
@@ -370,111 +436,162 @@ class ErrorToken : Token, ErrorTokenInterface
     this (
         ref Context context,
             string  symbol,
-            string  name    = "E",
-            string  message = "Token error."
+            string  name,
+            string  message
     ) {
-        super(context, "<"~name~">", TokenType.ERROR, name, 0);
-
+        super(context, "<E>", TokenType.ERROR);
         this.error_name    = name;
         this.error_message = message;
     }
 
     this(ref Context context, string name, string message) {
-        super(context, "<"~name~">", TokenType.ERROR, name, 0);
-
-        this.error_name    = name;
+        //context, symbol, TokenType, string name = ""
+        super(context, "<E>", TokenType.ERROR);
+        this.error_name    = "{E-"~name~"}";
         this.error_message = message;
     }
 
-    override bool isError() => true;
-
-    string message() {
-        return this.error_message;
-    }
+             string message() const => this.error_message;
+    override bool   isError() const => true;
 }
 
 class Any : Token
 {
+    private:
+    string _name_;
+    long   _value_;
+
+    public:
     this (
         ref Context   context,
             string    symbol,
-            TokenType type  = TokenType.Any,
-            string    name  = "<*>",
+            TokenType _type  = TokenType.Any,
+            string    name  = "{*}",
             long      value = 0
     ) {
-        super(context, symbol, type, name, value);
+        super(context, symbol, _type);
+        this._name_  = name;
+        this._value_ = value;
     }
 
-    override bool isAny() => true;
+    override bool isAny() const => true;
 }
 
 class None : Token
 {
-    this () {
-        super(new Context, symbol, type, name, value);
-    }
+    Context context;
 
-    override bool isNone() => true;
+    this () { super(this._context, "{~}", TokenType.None); }
+    override bool isNone() const => true;
 }
 
 class Literal : Token
 {
-    this (
-        ref Context   context,
-            string    symbol,
-            TokenType type  = TokenType.Literal,
-            string    name  = "<L>",
-            long      value = 0
-    ) {
-        super(context, symbol, type, name, value);
+    private:
+    string _name_;
+
+    public:
+    this(ref Context context, string symbol) {
+        super(context, symbol, TokenType.Literal);
+        this._name_ = "{L-"~symbol~"}";
     }
 
+    string name() const => this._name_;
+
+    override bool isLiteral() const => true;
+}
+
+interface ValueInterface {
+    long value();
+}
+
+class Value : Token, ValueInterface
+{
+    protected:
+    string _name;
+    long   _value = 0;
+
+    public:
     this(ref Context context, string symbol, long value) {
-        super(context, symbol, TokenType.Literal, "<L>", value);
+        super(context, "="~symbol, TokenType.Value);
+        this._name  = "{V-"~symbol~"}";
+        this._value = value;
+        this._type  = TokenType.Value;
     }
 
-    override bool isLiteral() => true;
+    string name()  const => this._name;
+    long   value() const => this._value;
+
+    override bool isValue() const => true;
 }
 
-class Value : Token
+interface VariableInterface : ValueInterface {
+    long value() const;
+    void value(long new_value);
+}
+
+class Variable : Value, VariableInterface
 {
-    this(ref Context context, long value) {
-        super(context, "="~(value), TokenType.Value, "<V>", value);
+    public:
+    this(ref Context context, string symbol, string name) {
+        super(context, symbol, 0);
+        this._name  = "{R-"~name~"}";
+    }
+
+    override bool isVariable() const => true;
+    override long value()      const => this._value;
+
+    void value(long new_value) {
+        this._value = new_value;
     }
 }
 
-class Variable : Value
-{
-    this(ref Context context, long value, string name) {
-        super(context, name~"="~(cast(string) value), "<R-"~name~">", value);
-    }
+interface RoutineInterface {
+    T opRun(T: Token)();
+    static bool exists(string name);
 }
 
 class Routine : Variable
 {
+    alias Callback = Token delegate(ref Context);
+
     protected:
     static SList!Routine routines;
 
+    string   _name;
+    Callback _callback;
+
     private:
-        Token delegate(ref Context) _runner_;
+    Token delegate(ref Context) _runner_;
 
     public:
-    this(ref Context context, string name, long value, Token delegate(ref Routine) dg) {
-        super(context, "::"~(name), TokenType.Routine, "<"~name~">", value);
+    this(ref Context context, string name, long value, Callback dg) {
+        super(context, "::"~name, name);
         this._runner_ = dg;
+        this._name    = name;
+        this._value   = value;
+        this._type    = TokenType.Routine;
 
         bool has = false;
         if(!Routine.exists(name))
-            Routine.routines ~= this;
+            Routine.routines.insertFront = this;
         else
-            debug writefln("Routine [%s] already exists; ignored.", name);
+            debug {
+                import std.stdio;
+                writefln("Routine [%s] already exists; ignored.", name);
+            }
     }
+
+    override bool isVariable() const => true;
+    override bool isValue()    const => true;
+    override bool isRoutine()  const => true;
 
     T opRun(T: Token)() {
         return this._runner_(this);
     }
 
     static bool exists(string name) {
+        // if (name.startsWith("{")) ...
         foreach (Routine r; Routine.routines) {
             if(r.name == name) {
                 return true;
@@ -487,38 +604,73 @@ class Routine : Variable
 class Operator : Token, OperatorInterface
 {
     protected:
-    import core.vararg;
-
-    bool checkValidity(Token token, ...) {
+    bool checkValidity(Token[] token ...) {
         ulong valid = 0;
-        foreach (Token t; _arguments) {
+        foreach (Token t; token) {
             if (t.isError) {
                 throw new Exception((cast(ErrorToken) t).message);
             }
-            if (t.type != TokenType.Value || t.type != TokenType.Number) {
+            if (t._type != TokenType.Value || t._type != TokenType.Number) {
                 valid += 1;
             }
         }
         return (valid == token.length);
     }
 
+    protected:
+    string _name;
+
     public:
-    this(ref Context context, string symbol, TokenType type = TokenType.Any) {
-        super(context, symbol, type = TokenType.Any);
+    this(ref Context context, string symbol, string name = "Operator") {
+        super(context, symbol, TokenType.Operator);
+        this._name = "<O-"~name~"("~symbol~")>";
     }
 
-    override bool isOperator() => true;
+    this(ref Context context, string symbol, TokenType type) {
+        super(context, symbol, type);
+        this.setNameByType();
+    }
 
-    Token opOperate(string operator)(Token token, ...) {
-        if (this.type == TokenType.MathOperator) {
-            if (_arguments.length < 2) {
-                return new ErrorToken!("<InvalidStack>", "Two (2) token required.");
+    protected void setNameByType() {
+        switch(this._type) {
+            case TokenType.Operator:
+                // ERROR
+                break;
+            case TokenType.MathOperator:
+                this._name = "<O-MathOperator("~symbol~")>";
+                break;
+            case TokenType.LogicOperator:
+                this._name = "<O-LogicOperator("~symbol~")>";
+                break;
+            case TokenType.UnaryOperator:
+                this._name = "<O-UnaryOperator("~symbol~")>";
+                break;
+            case TokenType.StackOperator:
+                this._name = "<O-StackOperator("~symbol~")>";
+                break;
+            case TokenType.SpecialOperator:
+                this._name = "<O-SpecialOperator("~symbol~")>";
+                break;
+            default:
+                errorf("Unsupported (operator) type.");
+                this._name = "<E-Unsupported("~symbol~")>";
+        }
+    }
+
+    override bool isOperator() const => true;
+    
+    string name() => this._name;
+
+    Token opOperate(string operator)(Token[] token ...) {
+        if (this._type == TokenType.MathOperator) {
+            if (token.length < 2) {
+                return new ErrorToken(this._context, "<InvalidStack>", "Two (2) token required.");
             }
 
             switch(operator) {
                 case "+":
                     if (!this.checkValidity(token[0], token[1])) {
-                        return new ErrorToken!("<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
+                        return new ErrorToken(this._context, "<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
                     }
 
                     Token a = token[0].asValue();
@@ -528,7 +680,7 @@ class Operator : Token, OperatorInterface
                 break;
                 case "-":
                     if (!this.checkValidity(token[0], token[1])) {
-                        return new ErrorToken!("<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
+                        return new ErrorToken(this._context, "<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
                     }
 
                     Token a = token[0].asValue();
@@ -538,7 +690,7 @@ class Operator : Token, OperatorInterface
                 break;
                 case "*":
                     if (!this.checkValidity(token[0], token[1])) {
-                        return new ErrorToken!("<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
+                        return new ErrorToken(this._context, "<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
                     }
 
                     Token a = token[0].asValue();
@@ -548,7 +700,7 @@ class Operator : Token, OperatorInterface
                 break;
                 case "/":
                     if (!this.checkValidity(token[0], token[1])) {
-                        return new ErrorToken!("<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
+                        return new ErrorToken(this._context, "<InvalidTokenType>", "Token must be of type `Value` or `Number`.");
                     }
 
                     Token a = token[0].asValue();
@@ -558,11 +710,11 @@ class Operator : Token, OperatorInterface
                 break;
                 default:
                     static import std.format;
-                    return new ErrorToken!("<InvalidOperator>", "Invalid math operator [%s].".format(operator));
+                    return new ErrorToken(this._context, "<InvalidOperator>", "Invalid math operator [%s].".format(operator));
             }
         }
         // TODO - StackOperator
-        else if (this.type == TokenType.StackOperator) {
+        else if (this._type == TokenType.StackOperator) {
             static import std.format;
             throw new Exception("NOT YET IMPLEMENTED!");
 
@@ -578,11 +730,11 @@ class Operator : Token, OperatorInterface
                 break;
                 default:
                     static import std.format;
-                    return new ErrorToken!("<InvalidOperator>", "Invalid stack operator [%s].".format(operator));
+                    return new ErrorToken(this._context, "<InvalidOperator>", "Invalid stack operator [%s].".format(operator));
             }
         }
         // TODO - UnaryOperator
-        else if (this.type == TokenType.UnaryOperator) {
+        else if (this._type == TokenType.UnaryOperator) {
             throw new Exception("NOT YET IMPLEMENTED!");
             switch (operator) {
                 //! Value required
@@ -595,16 +747,16 @@ class Operator : Token, OperatorInterface
                 default:
 
                     static import std.format;
-                    return new ErrorToken!("<InvalidOperator>", "Invalid unary operator [%s].".format(operator));
+                    return new ErrorToken(this._context, "<InvalidOperator>", "Invalid unary operator [%s].".format(operator));
             }
         }
         else {
-            return new ErrorToken!("<InvalidToken>", "Invalid token [%s].".format(operator));
+            return new ErrorToken(this._context, "<InvalidToken>", "Invalid token [%s].".format(operator));
         }
     }
 
     override TokenType[] expect() {
-        switch(this.name) {
+        switch(this._name) {
             case "MathOperator":
                 return [TokenType.Number, TokenType.Number];
             break;
@@ -627,6 +779,6 @@ class Operator : Token, OperatorInterface
 }
 
 // TODO
-TStack create(TStack, TType)(TType a, ...) {
-    return cast(TStack) _arguments;
+TList create(TList, TType)(TType a, ...) {
+    return cast(TList) _arguments;
 }
